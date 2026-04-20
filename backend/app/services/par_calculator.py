@@ -27,6 +27,17 @@ from app.models.bake_plan import BakePlan
 from app.models.flavor import Flavor
 from app.models.location import Location
 
+# Shared constants — single source of truth for flavor/location conventions
+MALL_FLAVOR_CODES = "ABCDEFGHIJKLMN"  # flavors that go to malls (skip cookie shots)
+VSJ_LOCATION_NAMES = ("VSJ", "Viejo San Juan", "Old San Juan")
+PLAZA_LOCATION_NAMES = ("Plaza", "Plaza Las Americas")
+
+
+def _get_vsj_location_id(db: Session) -> int:
+    """Resolve VSJ's location ID by name (survives reseed)."""
+    loc = db.query(Location).filter(Location.name.in_(VSJ_LOCATION_NAMES)).first()
+    return loc.id if loc else 3  # fallback to historical ID
+
 
 def compute_four_week_median(
     db: Session,
@@ -95,8 +106,8 @@ def get_dow_fallback(
       Other malls:    Thu=15, Fri=15, Sat=10, Sun=5  (Mon-Wed default=10)
     """
     dow = target_date.strftime("%A")
-    is_vsj = location_name in ("VSJ", "Viejo San Juan", "Old San Juan") or location_id == 3
-    is_plaza = location_name in ("Plaza", "Plaza Las Americas") or location_id == 5
+    is_vsj = location_name in VSJ_LOCATION_NAMES
+    is_plaza = location_name in PLAZA_LOCATION_NAMES
 
     # Standard table values
     if is_vsj:
@@ -244,7 +255,7 @@ def generate_dispatch_plan(db: Session, plan_date: date) -> list[DispatchPlan]:
             median_val, data_points = compute_four_week_median(db, loc.id, flav.id, plan_date, median_weeks)
 
             # Step 2: Fall back to Dispatch PARs sheet if DB has no data (new flavors)
-            if data_points == 0 and flav.code in "ABCDEFGHIJKLMN":
+            if data_points == 0 and flav.code in MALL_FLAVOR_CODES:
                 sheet_median, sheet_points = compute_median_from_sheet(
                     loc.name, flav.code, plan_date, median_weeks
                 )
@@ -323,12 +334,12 @@ def generate_bake_plan(db: Session, plan_date: date) -> list[BakePlan]:
     plans = []
     prev_date = plan_date - timedelta(days=1)
 
-    vsj_location_id = 3
+    vsj_location_id = _get_vsj_location_id(db)
     # Read reduction % from Morning PARs sheet (J3) — can change day to day
     REDUCTION_PCT = sheet_bake.get("_reduction_pct", 0.15)
 
     for flav in flavors:
-        if flav.code not in "ABCDEFGHIJKLMN":
+        if flav.code not in MALL_FLAVOR_CODES:
             continue
 
         # Sales Trend Median = VSJ 2-day-sum median from our DB

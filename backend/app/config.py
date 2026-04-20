@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_MINUTES: int = 480  # 8 hours
 
+    # Cron API key — used by Cloud Scheduler to call /cron/* endpoints.
+    # MUST be a separate secret from JWT_SECRET. If it matches JWT_SECRET,
+    # a leaked scheduler key could be used to forge admin tokens.
+    CRON_API_KEY: str = ""
+
     # Google Sheets (dual-write during transition)
     GOOGLE_SERVICE_ACCOUNT_FILE: str = "service_account.json"
     SALES_SHEET_ID: str = "1OrhmZgQRbMpzewqvdQd6Wipv-sIC4s1gEw9aJO-ldgE"

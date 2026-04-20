@@ -33,6 +33,22 @@ app.include_router(api_router, prefix="/api")
 
 
 @app.on_event("startup")
+def check_production_config():
+    """Warn loudly if the app is running with insecure default config."""
+    logger = logging.getLogger(__name__)
+    warnings = []
+    if settings.JWT_SECRET == "change-me-in-production":
+        warnings.append("JWT_SECRET is still the default! Set a strong random secret.")
+    if not settings.CRON_API_KEY:
+        warnings.append("CRON_API_KEY is not set. Using JWT_SECRET as fallback (insecure).")
+    if warnings:
+        logger.warning("=" * 70)
+        for w in warnings:
+            logger.warning(f"SECURITY: {w}")
+        logger.warning("=" * 70)
+
+
+@app.on_event("startup")
 def run_migrations():
     """Add new columns/tables on startup if they don't exist yet (safe to re-run)."""
     from app.database import engine, Base

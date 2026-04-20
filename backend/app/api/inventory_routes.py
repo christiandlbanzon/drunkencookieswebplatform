@@ -175,7 +175,7 @@ def create_delivery_request(
 def list_delivery_requests(
     status_filter: str | None = None,
     db: Session = Depends(get_db),
-    _=Depends(get_current_user),
+    _=Depends(require_module("dispatch")),
 ):
     """List today's delivery requests (for dispatch view)."""
     query = db.query(DeliveryRequest).filter(DeliveryRequest.request_date == date.today())

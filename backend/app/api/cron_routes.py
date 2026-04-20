@@ -24,7 +24,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 settings = get_settings()
 
-CRON_API_KEY = settings.JWT_SECRET
+# Cron key is separate from JWT_SECRET. Falls back to JWT_SECRET only for
+# backward compatibility with existing schedulers that haven't been updated —
+# a warning is logged in that case.
+CRON_API_KEY = settings.CRON_API_KEY or settings.JWT_SECRET
+if not settings.CRON_API_KEY:
+    logger.warning(
+        "CRON_API_KEY is not set; falling back to JWT_SECRET. "
+        "This is insecure — set a separate CRON_API_KEY env var."
+    )
 
 
 def verify_cron_caller(
@@ -35,6 +43,10 @@ def verify_cron_caller(
     """Allow access via X-Cron-Key header or admin/ops_manager JWT."""
     if x_cron_key and x_cron_key == CRON_API_KEY:
         return "scheduler"
+    # Also accept the legacy JWT_SECRET during the transition period
+    if x_cron_key and settings.CRON_API_KEY and x_cron_key == settings.JWT_SECRET:
+        logger.warning("Cron called with legacy JWT_SECRET; update the scheduler to use CRON_API_KEY")
+        return "scheduler-legacy"
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ", 1)[1]
         from app.auth.jwt_handler import decode_access_token
@@ -113,6 +125,24 @@ def nightly_pipeline(
     try:
         ingest_result = ingest_sales_for_date(db, yesterday)
     except Exception as e:
+        logger.error(f"Nightly ingest failed for {yesterday}: {e}", exc_info=True)
+        # Create an admin notification so someone notices if ingest is broken
+        try:
+            from app.api.notifications_routes import create_notification
+            create_notification(
+                db, kind="ingest_failure", severity="critical",
+                title=f"Nightly sales ingest failed — {yesterday}",
+                body=f"Ingest threw an error: {str(e)[:200]}. Plans may be using stale data.",
+                target_role="admin",
+            )
+            create_notification(
+                db, kind="ingest_failure", severity="critical",
+                title=f"Nightly sales ingest failed — {yesterday}",
+                body=f"{str(e)[:200]}",
+                target_role="ops_manager",
+            )
+        except Exception:
+            pass
         ingest_result = {"date": str(yesterday), "error": str(e), "records": 0}
 
     # Step 2: Generate today's plans
